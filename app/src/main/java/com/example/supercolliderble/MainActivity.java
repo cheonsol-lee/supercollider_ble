@@ -1,368 +1,215 @@
 package com.example.supercolliderble;
 
-import android.app.Activity;
-import android.content.ContentValues;
-import android.graphics.Color;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
-import android.widget.Toast;
 
-
-/** 2019.10.03 17:47
- *
- * 수정사항 : 비콘 3개 세팅.
- *
- */
-
+import java.io.DataOutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.Timer;
+import java.util.TimerTask;
 
 public class MainActivity extends BLEActivity {
 
-    private static EditText edit_main_cell;
-    private EditText edit_main_set;
-    //    private EditText edit_main_input; // 입력셀의 갯수
-//    private EditText edit_main_output; // 출력셀의 갯수
-    private Button btn_main_query;
-    private Button btn_main_save;
-    private Button btn_main_learn;
-    private Button btn_main_reset;
+    TextView esti_number;
+    EditText edit_filename, edit_casename;
+    private static String fileName, caseName;
 
-    private Button btn_model_a;
-    private Button btn_model_b;
-
-    private static TextView textv_main_message;
-    private static LinearLayout message_LinearLayout;
-    private static Activity mainActivityContext;
-    private static ScrollView scrollView;
-    private static TextView tv_main_accuracy;  // 정확도 표기
-
-
-    private boolean toggle = false; // false:off, true:on
-    private String cellNumber = null;
-    private static int urlSendCount = 0; // 쿼리전송시 전송한 URL 갯수
-    private static int correctCount = 0; // 맞은 횟수 카운트
-    private static String accuracyPercent = null; // 정확도 확률(%)
-    private static int responseCell = 0; // 응답으로 온 셀번호
-
-    //버튼을 상수화
-    private final static int BTN_RESET = 1;
-    private final static int BTN_QUERY = 2;
-    private final static int BTN_SAVE  = 3;
-    private final static int BTN_LEARN = 4;
-    private final static int BTN_MODEL_A = 5;
-    private final static int BTN_MODEL_B = 6;
-
+    Button btnStart, btnStop;
+    private final static int BTN_START = 1;
+    private final static int BTN_STOP = 2;
+    private int isSystemRun;
+    private static int esti_count;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        initScreen();
+        btnStart = (Button) findViewById(R.id.btn_start);
+        btnStop = (Button) findViewById(R.id.btn_stop);
+
+        esti_number = (TextView) findViewById(R.id.esti_number);
+
+        edit_filename = (EditText) findViewById(R.id.edit_filename);
+        edit_casename = (EditText) findViewById(R.id.edit_casename);
+
+
+        btnStart.setOnClickListener(mClickListener);
+        btnStop.setOnClickListener(mClickListener);
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
+    private Button.OnClickListener mClickListener = new View.OnClickListener() {
+
+        @Override
+        public void onClick(View v) {
+            switch (returnButtonType(v)) {
+                case BTN_START: {
+
+//                    // 공백체크
+//                    if(edit_inputcase.toString().replace(" ", "").equals("")){
+//                        Toast.makeText(MainActivity.this,"파일명을 채워주세요(공백x)",Toast.LENGTH_SHORT).show();
+//                        onPause();
+//                        break;
+//                    }
+                    scanLeDevice(true);
+                    fileName = edit_filename.getText().toString();
+                    caseName = edit_casename.getText().toString();
+
+                    countEstimation();    //Start sensor estimation
+                    printCount();
+
+                    break;
+                }
+
+                case BTN_STOP: {
+                    scanLeDevice(false);
+                    onPause();  //Stop sensor estimation
+//                    networkTask.onCancelled();
+                    break;
+                }
+
+
+            }
+        }
+    };
+
+    private int returnButtonType(View v) {
+        if (v == btnStart) {
+            isSystemRun = BTN_START;
+            return isSystemRun;
+        } else {
+            isSystemRun = BTN_STOP;
+            return isSystemRun;
+        }
     }
 
     @Override
     public void onPause() {
         super.onPause();
+        Log.e("LOG", "onPause()");
+
     }
 
-    @Override
-    public void onDestroy() {
-        super.onDestroy();
-    }
-
-    private void initScreen() {
-//        edit_main_input = findViewById(R.id.edit_main_input);
-//        edit_main_output = findViewById(R.id.edit_main_output);
-        edit_main_cell = findViewById(R.id.edit_main_cell);
-        edit_main_set = findViewById(R.id.edit_main_set);
-
-        btn_main_reset = findViewById(R.id.btn_main_reset);
-        btn_main_query = findViewById(R.id.btn_main_query);
-        btn_main_save = findViewById(R.id.btn_main_save);
-        btn_main_learn = findViewById(R.id.btn_main_learn);
-
-        btn_model_a = findViewById(R.id.btn_model_a);
-        btn_model_b = findViewById(R.id.btn_model_b);
-
-        message_LinearLayout = findViewById(R.id.message_LinearLayout);
-        scrollView = findViewById(R.id.ScrollView);
-        tv_main_accuracy = findViewById(R.id.tv_main_accuracy);
-
-        // clickListener
-        btn_main_reset.setOnClickListener(clickListener);
-        btn_main_query.setOnClickListener(clickListener);
-        btn_main_save.setOnClickListener(clickListener);
-        btn_main_learn.setOnClickListener(clickListener);
-        btn_model_a.setOnClickListener(clickListener);
-        btn_model_b.setOnClickListener(clickListener);
-
-        defaultButtonColor();
-
-        mainActivityContext = this;
-    }
-
-    // 버튼타입에 따라 정수형으로 리턴
-    private int returnButtonType(View v){
-        if     (v == btn_main_reset) return BTN_RESET;
-        else if(v == btn_main_query) return BTN_QUERY;
-        else if(v == btn_main_save ) return BTN_SAVE;
-        else if(v == btn_main_learn) return BTN_LEARN;
-        else if(v == btn_model_a)    return BTN_MODEL_A;
-        else                         return BTN_MODEL_B;
-    }
-
-    // button color default
-    private void defaultButtonColor(){
-        btn_main_reset.setBackgroundColor(Color.GRAY);
-        btn_main_query.setBackgroundColor(Color.GRAY);
-        btn_main_save.setBackgroundColor(Color.GRAY);
-        btn_main_learn.setBackgroundColor(Color.GRAY);
-        btn_model_a.setBackgroundColor(Color.GRAY);
-        btn_model_b.setBackgroundColor(Color.GRAY);
-    }
-
-    // button color setting
-    private void setButtonColor(View view){
-        defaultButtonColor();
-        if(getModelType() == 5){
-            btn_model_a.setBackgroundColor(Color.RED);
-        }
-
-        if(getModelType() == 6){
-            btn_model_b.setBackgroundColor(Color.RED);
-        }
-
-        switch(returnButtonType(view)){
-            case BTN_RESET:{
-                btn_main_reset.setBackgroundColor(Color.RED);
-                break;
-            }
-
-            case BTN_QUERY:{
-                btn_main_query.setBackgroundColor(Color.RED);
-                break;
-            }
-
-            case BTN_SAVE:{
-                btn_main_save.setBackgroundColor(Color.RED);
-                break;
-            }
-
-            case BTN_LEARN:{
-                btn_main_learn.setBackgroundColor(Color.RED);
-                break;
-            }
-        }
-    }
-
-
-
-    private View.OnClickListener clickListener = new View.OnClickListener() {
-
-        @Override
-        public void onClick(View v) {
-
-            switch (returnButtonType(v)){
-
-                case BTN_RESET:{
-                    setButtonColor(v);
-
-                    btn_main_reset.setBackgroundColor(Color.RED);
-                    setButtonType(BTN_RESET);
-                    urlSendCount = 0; // url 전송갯수 초기화
-                    correctCount = 0; // 정확도 갯수 초기화
-                    tv_main_accuracy.setText("0%");
-
-                    if ((message_LinearLayout).getChildCount() > 0)
-                        (message_LinearLayout).removeAllViews();
-                    break;
-                }
-
-                case BTN_QUERY:{
-                    setButtonColor(v);
-
-                    if (toggle) {
-                        Toast.makeText(MainActivity.this, "Query : Off", Toast.LENGTH_SHORT).show();
-                        toggle = false;
-                    } else {
-                        Toast.makeText(MainActivity.this, "Query : On", Toast.LENGTH_SHORT).show();
-                        toggle = true;
-                        setButtonType(BTN_QUERY);
-                        Log.i("BTN_QUERY", String.valueOf(getButtonType()));
-                    }
-                    scanLeDevice(toggle);
-                    break;
-                }
-
-                case BTN_SAVE :{
-
-
-
-                    setButtonColor(v);
-
-                    if (toggle) {
-                        Toast.makeText(MainActivity.this, "Save : Off", Toast.LENGTH_SHORT).show();
-                        toggle = false;
-                    } else {
-                        Toast.makeText(MainActivity.this, "Save : On", Toast.LENGTH_SHORT).show();
-                        toggle = true;
-                        cellNumber = edit_main_cell.getText().toString();
-                        int setNumber = Integer.parseInt(edit_main_set.getText().toString());
-
-                        setButtonType(BTN_SAVE);
-                        Log.i("BTN_SAVE", String.valueOf(getButtonType()));
-                        setCellandSetNumber(cellNumber, setNumber);
-                    }
-
-                    if (Integer.parseInt(cellNumber) == 0) {
-                        Log.i("cellNumber", "cellNumber:0");
-                        Toast.makeText(MainActivity.this, "0을 제외한 숫자를 입력해주세요!", Toast.LENGTH_SHORT).show();
-                    } else {
-                        // cell번호가 0이 아닐때만 스캔 진행
-                        scanLeDevice(toggle);
-                    }
-
-                    tv_main_accuracy.setText(save_number);
-
-                    if(complete_number == 1)
-                        tv_main_accuracy.setText("Complete!!!");
-
-                    break;
-                }
-
-                case BTN_LEARN:{
-                    setButtonColor(v);
-
-                    setButtonType(BTN_LEARN);
-                    Log.i("BTN_LEARN", String.valueOf(getButtonType()));
-                    Toast.makeText(MainActivity.this, "Learning Start", Toast.LENGTH_SHORT).show();
-
-                    int modelNumber = getModelType();
-
-                    int setNumberForLearning = Integer.parseInt(edit_main_set.getText().toString());
-                    String learnUrl = Useful.URL_LEARN + modelNumber + "/" + setNumberForLearning + "/";
-                    new CNN4IPSNetworkTask(learnUrl, null).execute();
-                    break;
-                }
-
-                case BTN_MODEL_A:{
-                    setModelType(BTN_MODEL_A);
-                    setButtonColor(v);
-                    Toast.makeText(MainActivity.this,"Model A selected!",Toast.LENGTH_SHORT).show();
-
-                    break;
-                }
-
-                case BTN_MODEL_B:{
-                    setModelType(BTN_MODEL_B);
-                    setButtonColor(v);
-                    Toast.makeText(MainActivity.this,"Model B selected!",Toast.LENGTH_SHORT).show();
-
-                    break;
-                }
-            }
-
-        }
-    };
-
-    // 자동스크롤 기능
-    public static void AutoScrollBottom() {
-        scrollView.post(new Runnable() {
+    private void countEstimation() {
+        final Timer timer = new Timer();
+        TimerTask timerTask = new TimerTask() {
             @Override
             public void run() {
-                scrollView.fullScroll(ScrollView.FOCUS_DOWN);
+                NetworkTask networkTask = new NetworkTask();
+
+                if (isSystemRun == BTN_STOP) {
+                    timer.cancel();
+                    esti_count = 0;
+                } else if (esti_count == 1000) {
+                    onPause();
+                    timer.cancel();
+                    esti_count = 0;
+                } else {
+                    networkTask.execute();
+                    esti_count++;
+                }
             }
-        });
+        };
+
+        // 1초에 1번씩 전송
+        timer.scheduleAtFixedRate(timerTask, 1000, 1000);
     }
 
-    // 백그라운드에서 스레드로 비콘신호 수신
-    public static class CNN4IPSNetworkTask extends AsyncTask<Void, Void, String> {
+    private void printCount() {
+        esti_number.setText(String.valueOf(esti_count));
+    }
 
-        private String url;
-        private ContentValues values;
-
-        public CNN4IPSNetworkTask(String url, ContentValues values) {
-            this.url = url;
-            this.values = values;
-        }
+    public class NetworkTask extends AsyncTask<Void, Void, Integer> {
+        int res;
 
         @Override
-        protected void onPreExecute() {
-            super.onPreExecute();
-        }
+        protected Integer doInBackground(Void... params) {
+            try {
+                String aws_url = "http://192.168.43.90:5000/ble"; //아마존 서버 IP
 
-        @Override
-        protected String doInBackground(Void... voids) {
-            String result;
-            RequestHttpURLConnection requestHttpURLConnection = new RequestHttpURLConnection();
-            result = requestHttpURLConnection.request(url, values);
-            return parser(result);
-        }
+                URL url = new URL(aws_url);
+                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
-        @Override
-        protected void onPostExecute(String aString) {
-            super.onPostExecute(aString);
+                conn.setReadTimeout(10000);
+                conn.setConnectTimeout(15000);
+                conn.setRequestMethod("POST");
+                conn.setDoInput(true);
+                conn.setDoOutput(true);
+                conn.setRequestProperty("Cache-Control", "no-cache");
+                conn.setRequestProperty("Accept", "application/json");
+                conn.setRequestProperty("Content-Type", "application/json");    //MIME 타입 설정. 이 설정을 통해 서버에서 http 요청에서 온 데이터의 타입 식별 가능
+                conn.connect();
 
-            //save버튼을 눌렀을때만 카운트횟수와 'Success:save' 문구 출력
-            if (getSetNumberForLearning() != 0 && getButtonType() == BTN_SAVE) {
-                int num = getSetNumberForLearning() - getSetNumber();
-                Log.i("setNumberLearning", "setNumberLearning:" + getSetNumberForLearning());
-                Log.i("setNumber", "setNumber:" + getSetNumber());
-
-                textv_main_message = new TextView(mainActivityContext);
-                textv_main_message.setText(String.format("%05d:%s\n", num, aString));
-                message_LinearLayout.addView(textv_main_message);
-                AutoScrollBottom();
-            } else {
-                Log.i("setNumberLearning", "setNumberLearning:" + getSetNumberForLearning());
-                if (getButtonType() == BTN_QUERY) {
-                    //query버튼 누를시 정확도 표기를 목적으로함
-
-                    urlSendCount++;
-
-                    responseCell = Integer.parseInt(aString);
-                    int cellNumber = Integer.parseInt(edit_main_cell.getText().toString());
-
-                    if (responseCell == cellNumber) {
-                        correctCount++;
+                String array = "";
+                for(int i=0 ; i<bleList.size() ; i++){
+                    if(i == bleList.size()-1){
+                        array += "{\"MAC\":"+bleList.get(i).getMac()+",\"rssi\":"+bleList.get(i).avgRssi()+"}";
                     }
-
-                    double value = (double) correctCount / (double) urlSendCount;
-
-                    accuracyPercent = String.valueOf(Double.parseDouble(String.format("%.2f", value)) * 100);
-                    //정확도 표기
-                    Log.i(Useful.LOG_COMM_SERVER, "accuracy:" + accuracyPercent + "%");
-                    Log.i(Useful.LOG_COMM_SERVER, "urlSendCount:" + urlSendCount);
-                    Log.i(Useful.LOG_COMM_SERVER, "correctCount:" + correctCount);
-                    Log.i(Useful.LOG_COMM_SERVER, "responseCell:" + responseCell);
-                    Log.i(Useful.LOG_COMM_SERVER, "cellNumber:" + cellNumber);
-                    tv_main_accuracy.setText(accuracyPercent + "%");
+                    else{
+                        array += "{\"MAC\":"+bleList.get(i).getMac()+",\"rssi\":"+bleList.get(i).avgRssi()+"},";
+                    }
                 }
 
-                textv_main_message = new TextView(mainActivityContext);
-                textv_main_message.setText(aString + "\n");
-                message_LinearLayout.addView(textv_main_message);
-                AutoScrollBottom();
+                String jsonData = "{\"BLE\":[";
+                jsonData += array + "]}";
+
+                Log.d("jsonData",jsonData);
+//                JSONArray jsonArray = new JSONArray();
+//
+//                jsonData1 = new JsonData(fileName, caseName, b1_mac, b1_rssi, b1_vendor);
+//                JSONObject jsonObject1 = JsonData.setJsonObject(jsonData1.jsonObject);
+//                jsonArray.put(jsonObject1);
+//
+//                jsonData2 = new JsonData(fileName, caseName, b2_mac, b2_rssi, b2_vendor);
+//                JSONObject jsonObject2 = JsonData.setJsonObject(jsonData2.jsonObject);
+//                jsonArray.put(jsonObject2);
+//
+//                jsonData3 = new JsonData(fileName, caseName, b3_mac, b3_rssi, b3_vendor);
+//                JSONObject jsonObject3 = JsonData.setJsonObject(jsonData3.jsonObject);
+//                jsonArray.put(jsonObject3);
+//
+//                JSONObject jsonObject_total = new JSONObject();
+//                try{
+//                    jsonObject_total.put("BLE", jsonArray);
+//
+//                    Log.i("jsonArray","json");
+//                    System.out.println(jsonObject_total);
+//
+//                } catch (JSONException e1){
+//                    e1.printStackTrace();
+//                }
+//
+//                DataOutputStream dos = new DataOutputStream(conn.getOutputStream());
+//                dos.writeBytes(jsonObject_total.toString());
+//                dos.flush();
+//                dos.close();
+
+                DataOutputStream dos = new DataOutputStream(conn.getOutputStream());
+                dos.writeBytes(jsonData);
+                dos.flush();
+                dos.close();
+
+                res = conn.getResponseCode();
+
+
+            } catch (Exception e) {
+                Log.i("signal_no", "exception");
+                e.printStackTrace();
             }
+
+            return res;
         }
 
-        private String parser(String aString) {
-            String parse = aString;
-            Log.d("TAG", "Web: " + parse);
-
-            return parse;
+        @Override
+        protected void onPostExecute(Integer res) {
+            super.onPostExecute(res);
         }
     }
+
 }
